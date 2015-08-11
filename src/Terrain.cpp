@@ -20,13 +20,6 @@
  SOFTWARE.
  */
 
-
-#define glCheckError() {			\
-GLenum err = gl::getError();	\
-if( err != GL_NO_ERROR )		\
-CI_LOG_E( gl::getErrorString( err ) ); \
-} \
-
 #include "Terrain.h"
 
 #include "cinder/gl/Fbo.h"
@@ -42,19 +35,17 @@ CI_LOG_E( gl::getErrorString( err ) ); \
 #include "cinder/Rand.h"
 #include "cinder/Frustum.h"
 #include "cinder/Utilities.h"
+#include "cinder/Timeline.h"
+
+#include "cinder/app/App.h"
 
 #include "glm/gtc/noise.hpp"
 
 #include "PoissonDiskDistribution.h"
 #include "Triangulation.h"
 
-#if !defined( CINDER_ANDROID ) || !defined( CINDER_COCOA_TOUCH )
-#include "utils/Watchdog.h"
-#endif
-
 using namespace std;
 using namespace ci;
-
 
 
 // MARK: rendering, fbo and shader utils
@@ -143,14 +134,8 @@ namespace {
 		gl_temp::ShaderPreprocessor pp;
 		pp.addDefine( "CINDER_DESKTOP", "0" );
 		pp.addDefine( "CINDER_GL_ES_3",	"1" );
-#if !defined( CINDER_ANDROID ) && !defined( CINDER_COCOA_TOUCH )
-		pp.addDefine( "CINDER_GL_PLATFORM", "CINDER_DESKTOP" );
-		pp.setVersion( 150 );
-#else
 		pp.addDefine( "CINDER_GL_PLATFORM", "CINDER_GL_ES_3" );
 		pp.setVersion( 300 );
-#endif
-	
 		
 		// try to compile the shader
 		gl::GlslProgRef shader;
@@ -214,55 +199,19 @@ mHeightMapTemp( 1 ),
 mHeightMapProgression( 0.0f )
 {
 	// load the main shaders
-#if !defined( CINDER_ANDROID ) && !defined( CINDER_COCOA_TOUCH )
-	wd::watch( "Shaders/Terrain.*", [=]( const fs::path &p ) {
-#endif
 #ifdef HIGH_QUALITY_ANIMATIONS
-		auto shader0 = loadShader( "TerrainHigh" );
+		mTileShader = loadShader( "TerrainHigh" );
 #else
-		auto shader0 = loadShader( "Terrain" );
+		mTileShader	= loadShader( "Terrain" );
 #endif
-		if( shader0 )
-			mTileShader			= shader0;
-#if !defined( CINDER_ANDROID ) && !defined( CINDER_COCOA_TOUCH )
-	} );
-#endif	
-	
-#if !defined( CINDER_ANDROID ) && !defined( CINDER_COCOA_TOUCH )
-	wd::watch( "Shaders/Sky.*", [=]( const fs::path &p ) {
-#endif
-		auto shader = loadShader( "Sky" );
-		if( shader )
-		mSkyShader			= shader;
-#if !defined( CINDER_ANDROID ) && !defined( CINDER_COCOA_TOUCH )
-	} );
-#endif
-	
-#if !defined( CINDER_ANDROID ) && !defined( CINDER_COCOA_TOUCH )
-	wd::watch( "Shaders/Trees.*", [=]( const fs::path &p ) {
-#endif
+
+		mSkyShader	= loadShader( "Sky" );
+
 #ifdef HIGH_QUALITY_ANIMATIONS
-		auto shader1 = loadShader( "TreesHigh" );
+		mTileContentShader = loadShader( "TreesHigh" );
 #else
-		auto shader1 = loadShader( "Trees" );
+		mTileContentShader = loadShader( "Trees" );
 #endif
-		if( shader1 )
-			mTileContentShader	= shader1;
-#if !defined( CINDER_ANDROID ) && !defined( CINDER_COCOA_TOUCH )
-	} );
-#endif
-	/*
-#if !defined( CINDER_ANDROID ) && !defined( CINDER_COCOA_TOUCH )
-	wd::watch( "Shaders/ClearingsObjects.*", [=]( const fs::path &p ) {
-#endif
-		auto shader2 = loadShader( "ClearingsObjects" );
-		if( shader2 )
-			mClearingObjectsShader	= shader2;
-#if !defined( CINDER_ANDROID ) && !defined( CINDER_COCOA_TOUCH )
-	} );
-#endif
-	*/
-	
 	
 	// create the noise lookup table
 	Perlin p( 6, mNoiseSeed );
@@ -281,13 +230,11 @@ mHeightMapProgression( 0.0f )
 		}
 	}
 	mNoiseLookupTable = gl::Texture2d::create( Surface( surface ), gl::Texture2d::Format().wrap( GL_REPEAT ).minFilter( GL_LINEAR ).magFilter( GL_LINEAR ) );
-	//glCheckError();
-	
+
 	// setup the skybox mesh
 	auto sphereMesh	= gl::VboMesh::create( geom::Sphere().radius( 7000 ) );
 	mSkyBatch		= gl::Batch::create( sphereMesh, mSkyShader );
-	//glCheckError();
-	
+
 	// add our timeline to the main app timeline
 	app::timeline().add( mTimeline );
 	
@@ -323,30 +270,6 @@ mHeightMapProgression( 0.0f )
 		mPopulationMeshes.push_back( mesh );
 	}
 #endif
-	
-	//glCheckError();
-	/*auto clearingModels = { "BigTree", "Cubes", "Crystals" };
-	for( auto model : clearingModels ){
-		// prepare trimesh
-		TriMesh mesh( TriMesh::Format().positions().texCoords0().texCoords1(4) );
-		// load the model
-		mesh.read( app::loadAsset( "Models/" + string( model ) + ".trimesh" ) );
-		// copy the triangle center and triangle id to the texcoords1 slot
-		const vector<uint32_t> indices = mesh.getIndices();
-		vec3* vertices = mesh.getPositions<3>();
-		vector<vec4> extras( mesh.getNumVertices(), vec4(0) );
-		for( size_t i = 0; i < indices.size(); i+=3 ){
-			float indice		= ( (float) indices[i] / 3.0f ) / (float) mesh.getNumTriangles();
-			vec3 center			= ( vertices[indices[i]] + vertices[indices[i+1]] + vertices[indices[i+2]] ) / 3.0f;
-			extras[indices[i]]	= vec4( center, indice );
-			extras[indices[i+1]]	= vec4( center, indice );
-			extras[indices[i+2]]	= vec4( center, indice );
-		}
-		mesh.appendTexCoords1( &extras[0], extras.size() );
-		
-		mClearingsBatches.push_back( gl::Batch::create( mesh, mClearingObjectsShader ) );
-	}*/
-	
 }
 
 void Terrain::start()
@@ -379,48 +302,28 @@ Terrain::~Terrain()
 //! renders the terrain from the camera point of view
 void Terrain::render( const CameraPersp &camera )
 {
-	
-#if !defined( CINDER_ANDROID ) && !defined( CINDER_COCOA_TOUCH )
-	if( !timer0 ) {
-		timer0 = gl::QueryTimeSwapped::create();
-		timer1 = gl::QueryTimeSwapped::create();
-		timer2 = gl::QueryTimeSwapped::create();
-		timer3 = gl::QueryTimeSwapped::create();
-	}
-#endif
-	//glCheckError();
-	
-	cpuTimer4.start();
 	// set the camera matrices
 	gl::setMatrices( camera );
 	
 	// MARK: Culling
-	
 	// create a camera slightly larger to make sure our
 	// culling algorithms get everything
 	CameraPersp frustumCam = camera;
 	frustumCam.setNearClip( 0.1f );
 	frustumCam.setFov( camera.getFov() + 2 );
-	//frustumCam.setEyePoint( frustumCam.getEyePoint() - frustumCam.getViewDirection() * 10.0f );
-	
-	//glCheckError();
+
 	// use the new camera to create a Frustum
 	Frustumf frustum( camera );
 	
 	vector<Terrain::TileRef> tiles = mTiles;
 	
-	int wtf = 0;
 	// start by removing every tiles that are not in the frustum
-	auto frutumRange = std::remove_if( tiles.begin(), tiles.end(), [&frustum,this,&wtf]( const Terrain::TileRef &tile ){
+	auto frutumRange = std::remove_if( tiles.begin(), tiles.end(), [&frustum,this]( const Terrain::TileRef &tile ){
 		bool outsideFrustum = !frustum.intersects( tile->getBounds( getElevation() ) );
-		if( outsideFrustum ) wtf++;
 		return outsideFrustum;
 	});
 	tiles.erase( frutumRange, tiles.end() );
 	
-	//CI_LOG_V( "Tiles after frustum culling " << tiles.size() << " " << wtf );
-	
-	//glCheckError();
 	// then tiles that are too far away to be seen
 	/*auto frutumFarRange = std::remove_if( tiles.begin(), tiles.end(), [&camera,&wtf]( const Terrain::TileRef &tile ){
 		bool farFarAway = camera.worldToEyeDepth( tile->getBounds().getCenter() ) < -800;
@@ -428,17 +331,13 @@ void Terrain::render( const CameraPersp &camera )
 		return farFarAway;
 	});
 	tiles.erase( frutumFarRange, tiles.end() );
-	
-	CI_LOG_V( "Tiles after farclip " << tiles.size() << " " << wtf );*/
-	
+	*/
+
 	// and finally, sort the remaining tiles from front to back
 	std::sort( tiles.begin(), tiles.end(), [&camera,this]( const Terrain::TileRef &lhs, const Terrain::TileRef &rhs ) {
 		return camera.worldToEyeDepth( lhs->getBounds( getElevation() ).getCenter() ) < camera.worldToEyeDepth( rhs->getBounds( getElevation() ).getCenter() );
 	} );
-	
-	cpuTimer4.stop();
-	
-	//glCheckError();
+
 	// MARK: Update uniforms
 	
 	// update shaders that needs fog uniform data
@@ -463,23 +362,15 @@ void Terrain::render( const CameraPersp &camera )
 	mTileContentShader->uniform( "uTouch", mTilePopulationExplosionCenter );
 	mTileContentShader->uniform( "uTouchSize", mTilePopulationExplosionSize );
 #endif
-	/*mClearingObjectsShader->uniform( "uTime", (float) cinder::app::getElapsedSeconds() );
-	mClearingObjectsShader->uniform( "uTouch", mTileExplosionCenter );
-	mClearingObjectsShader->uniform( "uTouchSize", mTileExplosionSize );*/
-	
+
 	// enable backface culling, disable blending and enable depth testing
 	gl::ScopedFaceCulling cullBackFaces( true, GL_BACK );
 	gl::ScopedBlend disableBlending( false );
 	gl::ScopedDepth scopedDepth( true );
 	
 	// MARK: Render terrain tiles
-#if !defined( CINDER_ANDROID ) && !defined( CINDER_COCOA_TOUCH )
-	timer0->begin();
-#endif
-	cpuTimer0.start();
-	
 	// render tiles
-	if( renderTerrain && mTileShader && mHeightMap[0] && mFloraDensityMap ){
+	if( mTileShader && mHeightMap[0] && mFloraDensityMap ){
 		gl::ScopedGlslProg scopedShader( mTileShader );
 		gl::ScopedModelMatrix scopedModelMatrix;
 		gl::ScopedTextureBind scopedTexture0( mHeightMap[0], 0 );
@@ -502,42 +393,23 @@ void Terrain::render( const CameraPersp &camera )
 					
 					// update tile animation uniforms
 					mTileShader->uniform( "uProgress", tile->mTerrainCompletion );
-					//glCheckError();
-					
+
 					// as we have created this batch with a dummy shader
 					// makes sure we have the right one
 					if( tile->mBatch->getGlslProg() != mTileShader ) {
 						tile->mBatch->replaceGlslProg( mTileShader );
 					}
-					//glCheckError();
-					
+
 					// render the batch
 					tile->mBatch->draw();
-					//glCheckError();
 				}
-				
-				////glCheckError();
-				
 			}
 		}
 	}
-	if( showBounds ) {
-		for( auto tile : tiles ){
-			gl::drawStrokedCube( tile->getBounds( getElevation(), mHeightMapProgression ) );
-		}
-	}
-	//glCheckError();
-	
-	cpuTimer0.stop();
-	cpuTimer1.start();
-#if !defined( CINDER_ANDROID ) && !defined( CINDER_COCOA_TOUCH )
-	timer0->end();
-	timer1->begin();
-#endif
+
 	// MARK: Render trees tiles
-	
 	// render tile content
-	if( renderTrees && mTileContentShader && mTrianglesHeightMap[0] ){
+	if( mTileContentShader && mTrianglesHeightMap[0] ){
 		gl::ScopedGlslProg scopedShader( mTileContentShader );
 		gl::ScopedTextureBind scopedTexture0( mTrianglesHeightMap[0], 0 );
 		gl::ScopedTextureBind scopedTexture1( mTrianglesHeightMap[1] ? mTrianglesHeightMap[1] : mTrianglesHeightMap[0], 1 );
@@ -577,51 +449,11 @@ void Terrain::render( const CameraPersp &camera )
 			}
 		}
 	}
-	//glCheckError();
-	
-	cpuTimer1.stop();
-	cpuTimer2.start();
-#if !defined( CINDER_ANDROID ) && !defined( CINDER_COCOA_TOUCH )
-	timer1->end();
-	timer2->begin();
-#endif
-	/*
-	// MARK: Render Clearing Objects
-	if( mClearingObjectsShader && mTrianglesHeightMap[0] ){
-		gl::ScopedGlslProg scopedShader( mClearingObjectsShader );
-		gl::ScopedTextureBind scopedTexture0( mTrianglesHeightMap[0], 0 );
-		gl::ScopedTextureBind scopedTexture1( mTrianglesHeightMap[1] ? mTrianglesHeightMap[1] : mTrianglesHeightMap[0], 1 );
-		gl::ScopedTextureBind scopedTexture2( mNoiseLookupTable, 2 );
-		
-		mClearingObjectsShader->uniform( "uHeightMap", 0 );
-		mClearingObjectsShader->uniform( "uHeightMapTemp", 1 );
-		mClearingObjectsShader->uniform( "uNoiseLookupTable", 2 );
-		mClearingObjectsShader->uniform( "uHeightMapProgression", mHeightMapProgression );
-		mClearingObjectsShader->uniform( "uElevation", getElevation() );
-		
-		gl::color( ColorA::black() );
-		for( size_t i = 0; i < mClearings.size(); ++i ){
-			if( mClearingsBatches[i] ){
-				// update tile animation uniforms
-				mClearingObjectsShader->uniform( "uProgress", 1.0f );
-				mClearingObjectsShader->uniform( "uPosition", mClearings[i] );
-				mClearingObjectsShader->uniform( "uId", (float) i );
-			
-				// as we have created this batch with a dummy shader
-				// we need to make sure we have the right shader
-				if( mClearingsBatches[i]->getGlslProg() != mClearingObjectsShader )
-					mClearingsBatches[i]->replaceGlslProg( mClearingObjectsShader );
-			
-				// render the batch
-				mClearingsBatches[i]->draw();
-			}
-		}
-	}*/
-	
+
 	// MARK: Render Skybox
 	
 	// render skybox
-	if( renderSky && mSkyShader ) {
+	if( mSkyShader ) {
 		// we are inside the sphere so enable frontface culling instead
 		gl::ScopedFaceCulling cullFrontFaces( true, GL_FRONT );
 		gl::color( ColorA::black() );
@@ -634,22 +466,13 @@ void Terrain::render( const CameraPersp &camera )
 		mSkyShader->uniform( "uTime", (float) cinder::app::getElapsedSeconds() );
 		mSkyBatch->draw();
 	}
-	//glCheckError();
-	
-	cpuTimer2.stop();
-	cpuTimer3.start();
-#if !defined( CINDER_ANDROID ) && !defined( CINDER_COCOA_TOUCH )
-	timer2->end();
-	timer3->begin();
-#endif
-	
+
 	// MARK: Occlusion culling
 	if( mOcclusionCullingEnabled ){
 		
 		// we don't actually need to render anything here, we just need
 		// to do if any fragment pass the different tests, so disable everything.
 		gl::ScopedFaceCulling disableFaceCulling( false );
-		//gl::ScopedFaceCulling cullFrontFaces( true, GL_FRONT );
 		gl::colorMask( GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE );
 		gl::depthMask( GL_FALSE );
 		for( auto tile : tiles ){
@@ -667,10 +490,7 @@ void Terrain::render( const CameraPersp &camera )
 		}
 		gl::colorMask( GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE );
 		gl::depthMask( GL_TRUE );
-		
-		//glFlush();
-		
-	
+
 		// query the occlusion test results
 		for( auto tile : tiles ){
 			tile->queryOcclusionResults();
@@ -681,26 +501,18 @@ void Terrain::render( const CameraPersp &camera )
 			}
 		}
 	}
-	//glCheckError();
-	cpuTimer3.stop();
-#if !defined( CINDER_ANDROID ) && !defined( CINDER_COCOA_TOUCH )
-	timer3->end();
-#endif
-	
+
 	gl::disableDepthRead();
 	gl::disableDepthWrite();
 }
 
 void Terrain::generateTilesPopulation()
 {
-	// reset touchSize
-	//mTimeline->applyPtr( &mTilePopulationExplosionSize, 0.001f, 2.0f, EaseInOutQuad() );
 	// start the tile populating process
 	populateTiles();
 }
 void Terrain::removeTilesPopulation()
 {
-	//mTimeline->applyPtr( &mTilePopulationExplosionSize, (float) ( mSize.x + mSize.y ), 25.0f, EaseInOutQuad() );
 	// clear all the meshes
 	for( auto tile : mTiles ){
 		tile->clearPopulation();
@@ -716,30 +528,12 @@ void Terrain::removeTilesPopulation()
 			tile->mPopulation[currentBatch].reset();
 		} );
 	}
-	
-	// reset mTileExplosionSize
-	//mTimeline->applyPtr( &mTileExplosionSize, 0.001f, 2.0f, EaseInOutQuad() );
 }
 
 
 void Terrain::regenerateTilesPopulation()
 {
 	populateTiles();
-	/*mTimeline->applyPtr( &mTilePopulationExplosionSize, (float) ( mSize.x * 0.5f ), 25.0f, EaseInOutQuad() );
-	for( size_t i = 0; i < mTiles.size(); ++i ) {
-		if( i < mTiles.size() - 1 ){
-			mTimeline->applyPtr( &mTiles[i]->mPopulationCompletion[mTiles[i]->mPopulationCurrent], 0.0f, 10.0f, EaseInOutQuad() );
-		}
-		else {
-			mTimeline->applyPtr( &mTiles[i]->mPopulationCompletion[mTiles[i]->mPopulationCurrent], 0.0f, 10.0f, EaseInOutQuad() )
-			.finishFn( [this](){
-				// reset mTileExplosionSize
-				mTimeline->applyPtr( &mTilePopulationExplosionSize, 0.001f, 2.0f, EaseInOutQuad() );
-				// start the tile populating process
-				populateTiles();
-			} );
-		}
-	}*/
 }
 
 // MARK: Tile
@@ -848,8 +642,6 @@ mPopulationTemp( 1 )
 	for( auto &p : meshVertices ){
 		auto uv = vec2( p.x, p.z ) * scl ;
 		auto offset = vec2( getArea().getUL() ) * scl;
-		
-		//mTriMesh.appendTexCoord( uv + offset );
 		texcoords.push_back( uv + offset );
 		
 		p += vec3( tileArea.getUL().x, 0.0f, tileArea.getUL().y );
@@ -880,13 +672,6 @@ mPopulationTemp( 1 )
 	mTriMesh.appendIndices( &meshIndices[0], meshIndices.size() );
 	mTriMesh.appendTexCoords0( &texcoords[0], texcoords.size() );
 #endif
-	
-	//mTriMesh.recalculateNormals();
-	
-	//cout << meshIndices.size() / 3 << " triangles(" << meshSamples.size() << " vertices)" << endl;
-	//CI_LOG_V( vec2( mArea.getUL() ) << " " << mSize );
-	//CI_LOG_V( mTileId << " done(geom: "
-	//		 << (int) ( geomTimer.getSeconds() * 1000.0 ) << "ms)." );
 }
 
 Terrain::Tile::~Tile()
@@ -911,14 +696,10 @@ ci::AxisAlignedBox Terrain::Tile::getBounds( float elevation, float interpolatio
 void Terrain::Tile::buildMeshes( const ci::gl::GlslProgRef &shader )
 {
 	// create the terrain mesh
-	// geom::Cube(), gl::getStockShader( gl::ShaderDef().color().texture() )
-	mBatch = gl::Batch::create( mTriMesh, shader );//, { { geom::Attrib::POSITION, "ciPosition" }, { geom::Attrib::TEX_COORD_0, "ciTexCoord0" } } );
+	mBatch = gl::Batch::create( mTriMesh, shader );
 	
 	// and the occluder mesh
 	buildOcclusionMesh();
-	
-	// free the mesh data
-	//mTriMesh.clear();
 	
 	// create a few occlusion queries
 	for( size_t i = 0; i < 5; i++ ){
@@ -1161,14 +942,6 @@ void Terrain::updateTiles()
 		// flag the tile process as complete
 		mBuildingTiles = false;
 		
-		/*// and resample the spline using the spline arclength
-		float splineTotalLength = mRoadSpline3d.getLength( 0.0f, 1.0f );
-		vector<vec3> splineSamples;
-		for( float i = 0; i <= 1.0f; i+= 0.005f ){
-			splineSamples.push_back( mRoadSpline3d.getPosition( mRoadSpline3d.getTime( i * splineTotalLength ) ) );
-		}
-		mRoadSpline3d	= BSpline3f( splineSamples, 3, true, false );*/
-		
 		// start the tile populating process
 		populateTiles();
 	}
@@ -1323,16 +1096,6 @@ void Terrain::populateTilesThreaded( size_t start, size_t end, size_t numTilesPe
 		}, [&]( const vec2& p ){
 			vec2 sample = p + vec2( tileArea.getUL() );
 			float s = floraMap->getValue( sample );
-			/*
-			bool insideClearing = false;
-			for( auto clearing : mClearings ){
-				vec2 clearing2d( clearing.x, clearing.z );
-				if( length( sample - clearing2d ) < 50.0f ){
-					insideClearing = true;
-					break;
-				}
-			}
-			*/
 			return s < 0.5f;// && !insideClearing;
 		}, localArea, initialSamples );
 		
@@ -1900,29 +1663,6 @@ void Terrain::generateHeightMap()
 	
 	// update bounds
 	updateTilesBounds();
-	
-	/*
-	// use the flora map to generate poisson disk samples
-	auto floraMap			= getTextureAsChannel( mFloraDensityMap );
-	//auto heightMap			= getTextureAsChannel( mHeightMap[mHeightMapCurrent] );
-	vector<vec2> samples	= poissonDiskDistribution( []( const vec2& p ){
-		return 50.0f;
-	}, [&]( const vec2& p ){
-		float s = floraMap->getValue( p + vec2( 100 ) );
-		return s < 0.5f;
-	}, Area( ivec2( 0 ), ivec2( mSize ) - ivec2( 200 ) ) );
-	
-	
-	// shuffle the vector so we can get the 3 first one
-	std::random_shuffle( samples.begin(), samples.end() );
-	
-	// copy and convert to 3d position vector
-	mClearings.clear();
-	int k = std::min( (int) samples.size(), 3 );
-	for( int i = 0; i < k; i++ ){
-		//float y = heightMap->getValue( vec2( samples[i].x, samples[i].y ) );
-		mClearings.push_back( vec3( samples[i].x + 100.0f, 0, samples[i].y + 100.0f ) );
-	}*/
 }
 
 // MARK: Triangle Heightmap rendering

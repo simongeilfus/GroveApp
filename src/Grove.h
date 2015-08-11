@@ -42,7 +42,6 @@ class Grove : public ci::app::App {
 public:
 	// initialization
 	Grove();
-	~Grove();
 	void setupUi();
 	void setupRendering();
 	void setupFbo();
@@ -61,8 +60,6 @@ public:
 	void randomizeFogColor();
 	void randomizeScatteringColor();
 	
-	
-	
 	// gestures
 	void tap( const Touch &touch );
 	void doubleTap( const Touch &touch );
@@ -70,17 +67,11 @@ public:
 	void panBegan( const Touch &touch );
 	void panEnded( const Touch &touch );
 	
-	// input events
-	void keyDown( ci::app::KeyEvent event ) override;
-	void mouseDown( ci::app::MouseEvent event ) override;
-	void mouseDrag( ci::app::MouseEvent event ) override;
-	
 	// picking and pixel data methods
 	ci::vec4	getPixelData( const ci::vec2 &position, const ci::CameraPersp &cam );
 	Touch::Type getPixelDataType( const ci::vec4 &data );
 	
 	// ui
-	void debugUi();
 	void createMenuModal( const std::string &name, ci::Rectf *rectangle, ci::vec2 *offset, const WidgetRef &menu = nullptr, const std::function<void()> &cancel = nullptr, const std::function<void()> &confirm = nullptr, bool adaptBackgroundColor = true );
 	
 	// camera
@@ -130,10 +121,4 @@ public:
 	float						mIntroOpacity[4];
 	bool						mIntro, mModal;
 	bool						mCopySurfaceToTwitter, mCopySurfaceToWallpaper;
-	
-	
-	bool showUi = false;
-	bool renderTerrain = true;
-	bool skipUpdate = false;
-	bool skipDraw = false;
 };

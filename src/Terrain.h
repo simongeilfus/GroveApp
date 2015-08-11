@@ -32,11 +32,6 @@
 #include "cinder/TriMesh.h"
 #include "cinder/Timeline.h"
 
-#include "cinder/Timer.h"
-#if !defined( CINDER_ANDROID ) && !defined( CINDER_COCOA_TOUCH )
-#include "cinder/gl/Query.h"
-#endif
-
 //#define HIGH_QUALITY_ANIMATIONS
 //#define WIP
 
@@ -44,13 +39,7 @@ typedef std::shared_ptr<class Terrain> TerrainRef;
 
 class Terrain : public std::enable_shared_from_this<Terrain>{
 public:
-	bool renderTerrain = true, renderTrees = true, renderSky = true;
-	bool showBounds = false;
-	ci::Timer cpuTimer0, cpuTimer1, cpuTimer2, cpuTimer3, cpuTimer4;
-#if !defined( CINDER_ANDROID ) && !defined( CINDER_COCOA_TOUCH )
-	ci::gl::QueryTimeSwappedRef timer0, timer1, timer2, timer3;
-#endif
-	
+
 	struct Format {
 		Format() : mSize( 850 ), mElevation( 120.0f ), mNoiseOctaves( 8 ), mNoiseScale( 5.0f ), mNoiseSeed( 1 ), mRoadBlurIterations( 4 ), mBlurIterations( 15 ), mSobelBlurIterations( 5 ), mNumTilesPerRow( 5 ), mNumWorkingThreads( 8 ) {}
 		
